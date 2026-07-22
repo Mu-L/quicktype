@@ -285,6 +285,15 @@ export class CPlusPlusRenderer extends ConvenienceRenderer {
         );
     }
 
+    private recursiveUnionUsesStackOptional(u: UnionType): boolean {
+        const [maybeNull] = removeNullFromUnion(u, true);
+        return (
+            this.isRecursiveUnion(u) &&
+            maybeNull !== null &&
+            this.isOptionalAsValuePossible(u)
+        );
+    }
+
     public isImplicitCycleBreaker(t: Type): boolean {
         // Containers break completeness cycles for classes, but not for type
         // aliases: an alias name is not in scope on its own right-hand side.
@@ -576,7 +585,10 @@ export class CPlusPlusRenderer extends ConvenienceRenderer {
 
         if (
             this.haveOptionalProperties ||
-            (this.haveNamedUnions && !this._options.boost)
+            (!this._options.codeFormat &&
+                iterableSome(this.namedUnions, (u) =>
+                    this.recursiveUnionUsesStackOptional(u),
+                ))
         ) {
             if (this._options.boost) {
                 this.emitInclude(true, "boost/optional.hpp");
@@ -1508,15 +1520,61 @@ export class CPlusPlusRenderer extends ConvenienceRenderer {
                             set.add(propType);
                             return [true, set];
                         })();
+                        const isRecursiveNamedUnion =
+                            propType instanceof UnionType &&
+                            this.namedUnions.has(propType) &&
+                            this.isRecursiveUnion(propType);
                         if (
-                            nullOrOptional &&
-                            !(
-                                propType instanceof UnionType &&
-                                this.isRecursiveUnion(propType)
-                            )
+                            isRecursiveNamedUnion &&
+                            p.isOptional &&
+                            removeNullFromUnion(propType, true)[0] !== null
                         ) {
+                            cppType = this.cppType(
+                                propType,
+                                {
+                                    needsForwardIndirection: true,
+                                    needsOptionalIndirection: true,
+                                    inJsonNamespace: false,
+                                },
+                                false,
+                                true,
+                                true,
+                            );
+                            const propertyName =
+                                this._stringType.wrapEncodingChange(
+                                    [ourQualifier],
+                                    this._stringType.getType(),
+                                    this.NarrowString.getType(),
+                                    this._stringType.createStringLiteral([
+                                        stringEscape(json),
+                                    ]),
+                                );
+                            this.emitLine(
+                                assignment.wrap(
+                                    [],
+                                    [
+                                        "j.find(",
+                                        propertyName,
+                                        ") != j.end() ? j.at(",
+                                        propertyName,
+                                        ").get<",
+                                        cppType,
+                                        ">() : ",
+                                        cppType,
+                                        "()",
+                                    ],
+                                ),
+                                ";",
+                            );
+                            return;
+                        }
+
+                        if (nullOrOptional) {
+                            const optionalTypes = isRecursiveNamedUnion
+                                ? new Set<Type>([propType])
+                                : typeSet;
                             cppType = this.cppTypeInOptional(
-                                typeSet,
+                                optionalTypes,
                                 {
                                     needsForwardIndirection: false,
                                     needsOptionalIndirection: false,
@@ -1526,7 +1584,7 @@ export class CPlusPlusRenderer extends ConvenienceRenderer {
                                 true,
                             );
                             toType = this.cppTypeInOptional(
-                                typeSet,
+                                optionalTypes,
                                 {
                                     needsForwardIndirection: false,
                                     needsOptionalIndirection: false,
