@@ -195,9 +195,7 @@ jobs:
 
             - name: Install scala
               if: ${{ contains(matrix.fixture, 'scala3') }}
-              uses: VirtusLab/scala-cli-setup@main
-            - run: echo '@main def hello() = println("We need this spam print statement for bloop to exit correctly...")' | scala-cli _
-              if: ${{ contains(matrix.fixture, 'scala3') }}
+              uses: VirtusLab/scala-cli-setup@v1.15.0
 
             - name: Install Elixir
               if: ${{ contains(matrix.fixture, 'elixir') }}
